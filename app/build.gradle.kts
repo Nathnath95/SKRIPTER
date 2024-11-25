@@ -32,6 +32,9 @@ android {
 }
 
 dependencies {
+    implementation("com.google.ai.client.generativeai:generativeai:0.7.0")
+    implementation("com.google.guava:guava:31.0.1-android")
+    implementation("org.reactivestreams:reactive-streams:1.0.4")
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.activity)

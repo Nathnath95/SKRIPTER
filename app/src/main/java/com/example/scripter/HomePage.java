@@ -1,24 +1,42 @@
 package com.example.scripter;
 
 import android.Manifest;
+import android.app.MediaRouteButton;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.media.session.MediaSession;
+import android.os.Build;
 import android.os.Bundle;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.os.Handler;
+import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import androidx.activity.EdgeToEdge;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import android.widget.Toast;
+
+import com.google.ai.client.generativeai.GenerativeModel;
+import com.google.ai.client.generativeai.java.GenerativeModelFutures;
+import com.google.ai.client.generativeai.type.Content;
+import com.google.ai.client.generativeai.type.GenerateContentResponse;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 public class HomePage extends AppCompatActivity {
 
@@ -28,9 +46,8 @@ public class HomePage extends AppCompatActivity {
     private boolean isRecording = false;
     private boolean isPaused = true;
     private StringBuilder transcribedText = new StringBuilder();
-
     private ImageButton micButton, pauseOrPlayButton, finishButton, cancelButton, recordlinglistButton;
-
+    TextToSpeech t1;
     private TextView timeTextView;
     private Handler timerHandler = new Handler();
     private int seconds = 0;
@@ -45,12 +62,46 @@ public class HomePage extends AppCompatActivity {
         }
     };
 
+    // String for API prompt
+    private String promtText;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_home_page);
+        t1 = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int i) {
+                if (i != TextToSpeech.ERROR)
+                    t1.setLanguage(Locale.CANADA);
+            }
+        });
 
+        MediaSession mediaSession = new MediaSession(this, "MyMediaSession");
+        mediaSession.setCallback(new MediaSession.Callback() {
+            @Override
+            public boolean onMediaButtonEvent(@NonNull Intent mediaButtonIntent) {
+                if (Intent.ACTION_MEDIA_BUTTON.equals(mediaButtonIntent.getAction())){
+                    KeyEvent event = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                    if (event != null && event.getAction() == KeyEvent.ACTION_DOWN){
+                        int keyCode = event.getKeyCode();
+                        switch (keyCode){
+                            case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                                Log.d("Text", "Play pressed");
+                                break;
+                            case KeyEvent.KEYCODE_MEDIA_NEXT:
+                                Log.d("Text", "Next pressed");
+                                break;
+                            case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
+                                Log.d("Text", "Previous pressed");
+                                break;
+                        }
+                    }
+                }
+                return super.onMediaButtonEvent(mediaButtonIntent);
+            }
+        });
+        mediaSession.setActive(true);
         micButton = findViewById(R.id.micButton);
         pauseOrPlayButton = findViewById(R.id.pauseOrPlayButton);
         finishButton = findViewById(R.id.finishButton);
@@ -66,6 +117,9 @@ public class HomePage extends AppCompatActivity {
         cancelButton.setOnClickListener(v -> cancelRecording());
 
         timeTextView = findViewById(R.id.timeTextView);
+
+        // Headphone buttons stuff
+
 
         updateButtonsState(false);
     }
@@ -178,10 +232,8 @@ public class HomePage extends AppCompatActivity {
 
         new android.os.Handler().postDelayed(() -> {
             String finalText = transcribedText.toString();
-            Intent intent = new Intent(HomePage.this, RecordedScriptPage.class);
-            intent.putExtra("RECORDED_SCRIPT", finalText);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+            Log.d("Text", finalText);
+            modelCall(finalText);
         }, 5000);
     }
 
@@ -242,5 +294,45 @@ public class HomePage extends AppCompatActivity {
         int sec = seconds % 60;
         String time = String.format("%02d:%02d", minutes, sec);
         timeTextView.setText(time);
+    }
+
+    // Api
+
+    public void modelCall(String text)
+    {
+        // Specify a Gemini model appropriate for your use case
+        GenerativeModel gm =
+                new GenerativeModel(
+                        "gemini-1.5-flash", "AIzaSyAVQnIs0KS3JF8G3-qQ32eBYthwHckb1K4");
+        GenerativeModelFutures model = GenerativeModelFutures.from(gm);
+
+        Content content =
+                new Content.Builder().addText("Generate me a 2 sentences based on this: " + text).build();
+
+        ListenableFuture<GenerateContentResponse> response = model.generateContent(content);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Futures.addCallback(
+                    response,
+                    new FutureCallback<GenerateContentResponse>() {
+                        @Override
+                        public void onSuccess(GenerateContentResponse result) {
+                            String resultText = result.getText();
+                            promtText = resultText;
+                            Intent intent = new Intent(HomePage.this, RecordedScriptPage.class);
+                            Log.d("Text", promtText);
+                            t1.speak(promtText, TextToSpeech.QUEUE_FLUSH, null);
+
+                            intent.putExtra("RECORDED_SCRIPT", promtText);
+                            startActivity(intent);
+                            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+                        }
+
+                        @Override
+                        public void onFailure(Throwable t) {
+                            t.printStackTrace();
+                        }
+                    },
+                    this.getMainExecutor());
+        }
     }
 }

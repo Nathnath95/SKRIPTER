@@ -7,7 +7,7 @@ import android.graphics.Paint;
 import android.util.AttributeSet;
 import android.view.View;
 
-public class WaveformView extends View {
+public class  WaveformView extends View {
 
     private Paint paint;
     private float[] waveformPoints;
